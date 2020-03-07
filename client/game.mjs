@@ -1,114 +1,203 @@
 'use strict';
 
 const maxWeight = 368;
-let load = 0;
+let map = {};
 
-let goods;
+class Point {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
 
-let maxX = 0;
-let maxY = 0;
-let map = [];
-let seller;
-let customers = [];
-
-export function startGame(levelMap, gameState) {
-    goods = gameState.goodsInPort;
-
-    for (let port of gameState.ports) {
-        let portInfo;
-        if (port.isHome) {
-            seller = port;
-            //seller.goodsInPort = gameState.goodsInPort;
-            continue;
-        } else {
-            portInfo = port;
-            portInfo.prices = [];
-        }
-
-        for (let price of gameState.prices) {
-            if (price.portId === port.portId) {
-                portInfo.prices.push(price);
-            }
-        }
-
-        customers.push(portInfo);
+        this.lenToStart = 0;
+        this.cost = 0;
+        this.parent = undefined;
     }
 
-    for (let line of levelMap.split('\n')) {
-        map.push(line.split(''));
+    /**
+     *
+     * @param {Point} other
+     * @return {boolean}
+     */
+    isEqual(other) {
+        return other.x === this.x && other.y === this.y;
     }
-
-    maxY = map.length - 1;
-    maxX = map[0].length - 1;
-
-    let parent = [];
-    for (let i = 0; i < map.length; i++) {
-        parent.push([]);
-        for (let j = 0; j < map[i].length; j++) {
-            parent[i][j] = undefined;
-        }
-    }
-    parent[seller.y][seller.x] = {};
-
-    let queue = [];
-    queue.push({ y: seller.y, x: seller.x });
-
-    while (queue.length !== 0) {
-        let current = queue.shift();
-        for (let vector of [{y: -1, x: 0}, {y: 1, x: 0}, {y: 0, x: -1}, {y: 0, x: 1}]) {
-            let newY = current.y + vector.y;
-            let newX = current.x + vector.x;
-            if (newX > maxX || newX < 0 || newY > maxY || newY < 0) {
-                continue;
-            }
-
-            if (parent[newY][newX]) {
-                continue;
-            }
-
-            switch (map[newY][newX]) {
-                case '~':
-                    queue.push({ y: newY, x: newX});
-                    break;
-                case 'O':
-                    let last = current;
-                    let path = [{ y: newY, x: newX}];
-                    while (last.x && last.y) {
-                        path.unshift(last);
-                        last = parent[last.y][last.x];
-                    }
-
-                    for (let port of customers) {
-                        if (port.x === newX && port.y === newY) {
-                            port.path = path;
-                        }
-                    }
-                    break;
-                default:
-                    break;
-
-            }
-            parent[newY][newX] = current;
-        }
-    }
-
-    customers.sort(function(first, second) {
-        if (first.path.length > second.path.length)
-            return 1;
-        if (first.path.length < second.path.length)
-            return -1;
-        return 0;
-    })
 }
 
-function loadGoods(gameState) {
+class Port {
+    constructor(x, y, id) {
+        this.xy = new Point(x, y);
+        this.id = id;
+    }
+}
 
+class Customer extends Port {
+    constructor(x, y, id) {
+        super(x, y, id);
+        this.prices = [];
+        this.routToHome = [];
+    }
+}
+
+class Home extends Port{
+    constructor(x, y, id) {
+        super(x, y, id);
+        this.goods = [];
+        this.routsToCustomers = [];
+    }
+}
+
+/**
+ *
+ * @param stringMap
+ * @return {Array}
+ */
+function parseMap(stringMap) {
+    let my_map = [];
+    for (let line of stringMap.split('\n')) {
+        my_map.push(line.split(''));
+    }
+
+    return my_map;
+}
+
+function calculateManhattanDistance(end, start) {
+    return Math.abs(start.x - end.x) + Math.abs(start.y - end.y);
+}
+
+function isWall(point) {
+    return (map.map)[point.y][point.x] === '#';
+}
+
+function isAbroad(point) {
+    return point.x > map.size - 1 || point.x < 0 || point.y > map.size - 1 || point.y < 0;
+}
+
+function findMinCost(array) {
+    let index = 0;
+    for (let i = 1; i < array.length; i++) {
+        if (array[i].cost < array[index].cost) {
+            index = i;
+        }
+    }
+
+    return index
+}
+
+function collectPath(current) {
+    let path = [];
+    while (current) {
+        path.push(current);
+        current = current.parent;
+    }
+
+    return path.reverse();
+}
+
+function getCustomersPorts(gameState) {
+    let customers = {};
+    for (let port of gameState.ports) {
+        if (!port.isHome) {
+            customers[port.portId] = new Customer(port.x, port.y, port.portId);
+        }
+    }
+
+    for (let prices of gameState.prices) {
+        customers[prices.portId].prices = prices;
+    }
+
+    return customers;
+}
+
+function getHomePort(gameState) {
+    let home = {};
+    for (let port of gameState.ports) {
+        if (port.isHome) {
+            home =  new Home(port.x, port.y, port.portId);
+            break;
+        }
+    }
+    home.goods = gameState.goodsInPort;
+
+    return home;
+}
+
+/**
+ *
+ * @param {Point} start
+ * @param {Point} end
+ */
+function findRout(start, end) {
+    let heuristic = calculateManhattanDistance.bind(this, end);
+    let openList = [];
+    let closedList = [];
+
+    openList.push(start);
+    start.lenToStart = 0;
+    start.cost = heuristic(start);
+    start.parent = undefined;
+
+    while (openList.length !== 0) {
+        let index = findMinCost(openList);
+        let current = openList[index];
+
+        if (current.isEqual(end)) {
+            return collectPath(current);
+        }
+
+        openList.splice(index, 1);
+        closedList.push(current);
+
+        for (let vector of [{x: -1, y: 0}, {x: 1, y: 0}, {x: 0, y: -1}, {x: 0, y: 1}]) {
+            let next = new Point(current.x + vector.x, current.y + vector.y);
+
+            if (isAbroad(next) || closedList.some(item => item.isEqual(next)) || isWall(next)) {
+                continue;
+            }
+
+            let new_cost = current.lenToStart + 1;
+            if (!closedList.some(item => item.isEqual(next)) || new_cost < next.lenToStart) {
+                next.parent = current;
+                next.lenToStart = new_cost;
+                next.cost = new_cost + heuristic(next);
+                if (!openList.some(item => item.isEqual(next))) {
+                    openList.push(next);
+                }
+            }
+        }
+    }
+}
+
+function findRoutesFromHomeToAll() {
+    let routs = [];
+    for (let id in map.customers) {
+        if (! map.customers.hasOwnProperty(id)) {
+            continue;
+        }
+
+        let customer = map.customers[id];
+        let rout = findRout(map.home.xy, customer.xy);
+        map.home.routsToCustomers.push(rout);
+        customer.routToHome = rout.reverse();
+
+        routs.push(rout);
+    }
+
+    return routs;
+}
+
+function findRoutesBetweenPorts() {
+
+}
+
+export function startGame(levelMap, gameState) {
+    map.map = parseMap(levelMap);
+    map.size = map.map.length;
+    map.customers = getCustomersPorts(gameState);
+    map.home = getHomePort(gameState);
+    map.route = findRoutesFromHomeToAll();
+    console.log(map.route);
 }
 
 export function getNextCommand(gameState) {
-    switch (map[gameState.ship.y][gameState.ship.x]) {
-        case 'H':
-
-    }
-    return 'N';
+    return 'WAIT';
 }
