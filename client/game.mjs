@@ -13,11 +13,6 @@ class Point {
         this.parent = undefined;
     }
 
-    /**
-     *
-     * @param {Point} other
-     * @return {boolean}
-     */
     isEqual(other) {
         return other.x === this.x && other.y === this.y;
     }
@@ -33,7 +28,7 @@ class Port {
 class Customer extends Port {
     constructor(x, y, id) {
         super(x, y, id);
-        this.prices = [];
+        this.prices = {};
         this.routToHome = [];
     }
 }
@@ -41,16 +36,11 @@ class Customer extends Port {
 class Home extends Port{
     constructor(x, y, id) {
         super(x, y, id);
-        this.goods = [];
-        this.routsToCustomers = [];
+        this.routsToCustomers = {};
+        this.goodsInPort = {};
     }
 }
 
-/**
- *
- * @param stringMap
- * @return {Array}
- */
 function parseMap(stringMap) {
     let my_map = [];
     for (let line of stringMap.split('\n')) {
@@ -103,6 +93,7 @@ function getCustomersPorts(gameState) {
 
     for (let prices of gameState.prices) {
         customers[prices.portId].prices = prices;
+        delete customers[prices.portId].prices.portId;
     }
 
     return customers;
@@ -116,16 +107,14 @@ function getHomePort(gameState) {
             break;
         }
     }
-    home.goods = gameState.goodsInPort;
+
+    for (let goods of gameState.goodsInPort) {
+        home.goodsInPort[goods.name] = goods;
+    }
 
     return home;
 }
 
-/**
- *
- * @param {Point} start
- * @param {Point} end
- */
 function findRout(start, end) {
     let heuristic = calculateManhattanDistance.bind(this, end);
     let openList = [];
@@ -176,7 +165,7 @@ function findRoutesFromHomeToAll() {
 
         let customer = map.customers[id];
         let rout = findRout(map.home.xy, customer.xy);
-        map.home.routsToCustomers.push(rout);
+        map.home.routsToCustomers[id] = rout;
         customer.routToHome = rout.reverse();
 
         routs.push(rout);
@@ -185,8 +174,32 @@ function findRoutesFromHomeToAll() {
     return routs;
 }
 
-function findRoutesBetweenPorts() {
+function calculateProfit(lenRout, volume, price) {
+    return (price / volume) / lenRout;
+}
 
+function getProfitUnitGoods() {
+    let profitGoods = {};
+    for (let id in map.customers) {
+        if (!map.customers.hasOwnProperty(id)) {
+            continue;
+        }
+
+        let customer = map.customers[id];
+        for (let goods in customer.prices) {
+            if (!customer.prices.hasOwnProperty(goods)) {
+                continue;
+            }
+            let current = calculateProfit(map.home.routsToCustomers[id].length,
+                map.home.goodsInPort[goods].volume,
+                customer.prices[goods]);
+
+            if (!profitGoods.hasOwnProperty(goods) || profitGoods[goods].price < current) {
+                profitGoods[goods] = { portId: id, price:current };
+            }
+        }
+    }
+    return profitGoods;
 }
 
 export function startGame(levelMap, gameState) {
@@ -195,9 +208,123 @@ export function startGame(levelMap, gameState) {
     map.customers = getCustomersPorts(gameState);
     map.home = getHomePort(gameState);
     map.route = findRoutesFromHomeToAll();
-    console.log(map.route);
+    map.profit = getProfitUnitGoods();
+}
+
+function updateGoodsInPort(gameState) {
+    for (let goods of gameState.goodsInPort) {
+        if (!map.home.goodsInPort.hasOwnProperty(goods.name)) {
+            map.home.goodsInPort[goods.name] = goods;
+        } else {
+            map.home.goodsInPort[goods.name].amount = goods.amount;
+        }
+    }
+}
+
+function goodsInStock(goods) {
+    return map.home.goodsInPort.hasOwnProperty(goods) &&
+        map.home.goodsInPort[goods].amount > 0;
+}
+
+function chooseCustomer() {
+    let maxPrice = Number.NEGATIVE_INFINITY;
+    let currentPortId = 0;
+    for (let goods in map.profit) {
+        if (!map.profit.hasOwnProperty(goods)) {
+            continue;
+        }
+
+        if (map.profit[goods].price > maxPrice && goodsInStock(goods)) {
+            maxPrice = map.profit[goods].price;
+            currentPortId = map.profit[goods].portId;
+        }
+    }
+    return currentPortId;
+}
+
+class PackItem {
+    constructor(name, price, volume, amount) {
+        this.name = name;
+        this.price = price * amount;
+        this.volume = volume * amount;
+        this.amount = amount;
+    }
+}
+
+function calculateMaxPowerInNumber(number, base) {
+    let bin = Number(number).toString(base);
+    return bin.length - 1;
+}
+
+function getItemsForPack(prices) {
+    let items = [];
+    for (let goods in prices) {
+        let goodsInPort = map.home.goodsInPort;
+        if (!prices.hasOwnProperty(goods) || !goodsInPort.hasOwnProperty(goods) ) {
+            continue;
+        }
+        let count = goodsInPort[goods].amount;
+        let power = calculateMaxPowerInNumber(count, 2);
+        let countPack = 0;
+        for (let i = 0; i < power; i++) {
+            countPack += Math.pow(2, i);
+            items.push(new PackItem(goods, prices[goods], goodsInPort[goods].volume, Math.pow(2, i)));
+        }
+        items.push(new PackItem(goods, prices[goods], goodsInPort[goods].volume, count - countPack));
+    }
+
+    return items;
+}
+
+function packGoods(portId) {
+    let items = getItemsForPack(map.customers[portId].prices);
+    let itemCount = items.length;
+    let weightMatrix = [];
+    let keepMatrix = [];
+    let solutionSet = [];
+
+    for (let i = 0; i <= itemCount; i++) {
+        weightMatrix.push([]);
+        keepMatrix.push([]);
+        for (let j = 0; j <= maxWeight; j++) {
+            weightMatrix[i].push(0);
+            keepMatrix[i].push(0);
+        }
+    }
+
+    for (let i = 1; i <= itemCount; i++) {
+        for (let j = 1; j <= maxWeight; j++){
+            let current = items[i - 1];
+            if (current.volume <= j){
+                let newMax = current.price + weightMatrix[i - 1][j - current.volume];
+                let oldMax = weightMatrix[i - 1][j];
+
+                if(newMax > oldMax) {
+                    weightMatrix[i][j] = newMax;
+                    keepMatrix[i][j] = 1;
+                } else {
+                    weightMatrix[i][j] = oldMax;
+                    keepMatrix[i][j] = 0;
+                }
+            } else {
+                weightMatrix[i][j] = weightMatrix[i - 1][j];
+            }
+        }
+    }
+    let j = maxWeight;
+    for (let i = itemCount; i > 0; i--) {
+        if (keepMatrix[i][j] === 1) {
+            solutionSet.push(items[i - 1]);
+            j -= items[i - 1].volume;
+        }
+    }
+
+    return solutionSet;
 }
 
 export function getNextCommand(gameState) {
+    updateGoodsInPort(gameState);
+    let currentPort = chooseCustomer();
+    console.info(packGoods(currentPort));
     return 'WAIT';
 }
