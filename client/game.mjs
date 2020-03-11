@@ -1,6 +1,8 @@
 'use strict';
 
 const maxWeight = 368;
+let onTask = false;
+let task = {};
 let map = {};
 
 class Point {
@@ -92,7 +94,7 @@ function getCustomersPorts(gameState) {
     }
 
     for (let prices of gameState.prices) {
-        customers[prices.portId].prices = prices;
+        Object.assign(customers[prices.portId].prices, prices);
         delete customers[prices.portId].prices.portId;
     }
 
@@ -249,6 +251,15 @@ class PackItem {
         this.volume = volume * amount;
         this.amount = amount;
     }
+
+    add(otherItem) {
+        if (this.name !== otherItem.name) {
+            return;
+        }
+        this.price += otherItem.price;
+        this.volume += otherItem.volume;
+        this.amount += otherItem.amount;
+    }
 }
 
 function calculateMaxPowerInNumber(number, base) {
@@ -281,7 +292,7 @@ function packGoods(portId) {
     let itemCount = items.length;
     let weightMatrix = [];
     let keepMatrix = [];
-    let solutionSet = [];
+    let solutionSet = {};
 
     for (let i = 0; i <= itemCount; i++) {
         weightMatrix.push([]);
@@ -314,17 +325,99 @@ function packGoods(portId) {
     let j = maxWeight;
     for (let i = itemCount; i > 0; i--) {
         if (keepMatrix[i][j] === 1) {
-            solutionSet.push(items[i - 1]);
-            j -= items[i - 1].volume;
+            let current = items[i - 1];
+            if (!solutionSet.hasOwnProperty(current.name)) {
+                solutionSet[current.name] = current;
+            } else {
+                solutionSet[current.name].add(current);
+            }
+            j -= current.volume;
         }
     }
 
-    return solutionSet;
+    return Object.values(solutionSet);
 }
 
+class Task {
+    constructor(portId, goods) {
+        this.portId = portId;
+        this.goods = goods;
+        this.rout = map.home.routsToCustomers[portId];
+        this.inWay = false;
+        this.atHome = true;
+        this.generator = this.generateStep();
+    }
+
+    * generateStep() {
+        for (let item of this.goods) {
+            yield `LOAD ${item.name} ${item.amount}`
+        }
+
+        let lastCell = this.rout[0];
+        for (let i = 1; i < this.rout.length; i++) {
+            let cell = this.rout[i];
+            switch (cell.x - lastCell.x) {
+                case -1:
+                    yield 'E';
+                    break;
+                case 1:
+                    yield 'W';
+                    break;
+            }
+            switch (cell.y - lastCell.y) {
+                case -1:
+                    yield 'S';
+                    break;
+                case 1:
+                    yield 'N';
+                    break;
+            }
+            lastCell = cell;
+        }
+
+        for (let item of this.goods) {
+            yield `SELL ${item.name} ${item.amount}`
+        }
+
+        let lenRout = this.rout.length - 1;
+        lastCell = this.rout[lenRout];
+        for (let i = lenRout - 1; i >= 0; i--) {
+            let cell = this.rout[i];
+            switch (cell.x - lastCell.x) {
+                case -1:
+                    yield 'E';
+                    break;
+                case 1:
+                    yield 'W';
+                    break;
+            }
+            switch (cell.y - lastCell.y) {
+                case -1:
+                    yield 'S';
+                    break;
+                case 1:
+                    yield 'N';
+                    break;
+            }
+            lastCell = cell;
+        }
+    }
+}
+
+
 export function getNextCommand(gameState) {
-    updateGoodsInPort(gameState);
-    let currentPort = chooseCustomer();
-    console.info(packGoods(currentPort));
-    return 'WAIT';
+    if (!onTask) {
+        updateGoodsInPort(gameState);
+        let currentPort = chooseCustomer();
+        let goods = packGoods(currentPort);
+        task = new Task(currentPort, goods);
+        onTask = true;
+    }
+    let step = task.generator.next();
+    if (step.done) {
+        onTask = false;
+        return getNextCommand(gameState);
+    }
+    console.info(step.value);
+    return step.value;
 }
