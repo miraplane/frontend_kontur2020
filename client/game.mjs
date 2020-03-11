@@ -1,5 +1,32 @@
 'use strict';
 
+export function startGame(levelMap, gameState) {
+    onTask = false;
+    map.map = parseMap(levelMap);
+    map.size = map.map.length;
+    map.customers = getCustomersPorts(gameState);
+    map.home = getHomePort(gameState);
+    map.route = findRoutesFromHomeToAll();
+    map.profit = getProfitUnitGoods();
+}
+
+export function getNextCommand(gameState) {
+    if (!onTask) {
+        updateGoodsInPort(gameState);
+        let currentPort = chooseCustomer();
+        let goods = packGoods(currentPort);
+        task = new Task(currentPort, goods);
+        onTask = true;
+    }
+    let step = task.generator.next();
+    if (step.done) {
+        onTask = false;
+        return getNextCommand(gameState);
+    }
+    console.info(step.value);
+    return step.value;
+}
+
 const maxWeight = 368;
 let onTask = false;
 let task = {};
@@ -40,6 +67,82 @@ class Home extends Port{
         super(x, y, id);
         this.routsToCustomers = {};
         this.goodsInPort = {};
+    }
+}
+
+class PackItem {
+    constructor(name, price, volume, amount) {
+        this.name = name;
+        this.price = price * amount;
+        this.volume = volume * amount;
+        this.amount = amount;
+    }
+
+    add(otherItem) {
+        if (this.name !== otherItem.name) {
+            return;
+        }
+        this.price += otherItem.price;
+        this.volume += otherItem.volume;
+        this.amount += otherItem.amount;
+    }
+}
+
+class Task {
+    constructor(portId, goods) {
+        this.portId = portId;
+        this.goods = goods;
+        this.routToCustomer = map.home.routsToCustomers[portId];
+        this.routToHome = map.customers[portId].routToHome;
+        this.generator = this.generateStep();
+    }
+
+    * generateRoutStep(rout){
+        let lastCell = rout[0];
+        for (let i = 1; i < rout.length; i++) {
+            let cell = rout[i];
+            switch (cell.x - lastCell.x) {
+                case -1:
+                    yield 'W';
+                    break;
+                case 1:
+                    yield 'E';
+                    break;
+            }
+            switch (cell.y - lastCell.y) {
+                case -1:
+                    yield 'N';
+                    break;
+                case 1:
+                    yield 'S';
+                    break;
+            }
+            lastCell = cell;
+        }
+    }
+
+    * generateStep() {
+        for (let item of this.goods) {
+            yield `LOAD ${item.name} ${item.amount}`
+        }
+
+        let toCustomer = this.generateRoutStep(this.routToCustomer);
+        let step = toCustomer.next();
+        while (!step.done) {
+            yield step.value;
+            step = toCustomer.next();
+        }
+
+        for (let item of this.goods) {
+            yield `SELL ${item.name} ${item.amount}`
+        }
+
+        let toHome = this.generateRoutStep(this.routToHome);
+        step = toHome.next();
+        while (!step.done) {
+            yield step.value;
+            step = toHome.next();
+        }
     }
 }
 
@@ -168,7 +271,7 @@ function findRoutesFromHomeToAll() {
         let customer = map.customers[id];
         let rout = findRout(map.home.xy, customer.xy);
         map.home.routsToCustomers[id] = rout;
-        customer.routToHome = rout.reverse();
+        customer.routToHome = rout.reduce((acc, e) => ([e, ...acc]), []);
 
         routs.push(rout);
     }
@@ -204,22 +307,10 @@ function getProfitUnitGoods() {
     return profitGoods;
 }
 
-export function startGame(levelMap, gameState) {
-    map.map = parseMap(levelMap);
-    map.size = map.map.length;
-    map.customers = getCustomersPorts(gameState);
-    map.home = getHomePort(gameState);
-    map.route = findRoutesFromHomeToAll();
-    map.profit = getProfitUnitGoods();
-}
-
 function updateGoodsInPort(gameState) {
+    map.home.goodsInPort = {};
     for (let goods of gameState.goodsInPort) {
-        if (!map.home.goodsInPort.hasOwnProperty(goods.name)) {
-            map.home.goodsInPort[goods.name] = goods;
-        } else {
-            map.home.goodsInPort[goods.name].amount = goods.amount;
-        }
+        map.home.goodsInPort[goods.name] = goods;
     }
 }
 
@@ -244,24 +335,6 @@ function chooseCustomer() {
     return currentPortId;
 }
 
-class PackItem {
-    constructor(name, price, volume, amount) {
-        this.name = name;
-        this.price = price * amount;
-        this.volume = volume * amount;
-        this.amount = amount;
-    }
-
-    add(otherItem) {
-        if (this.name !== otherItem.name) {
-            return;
-        }
-        this.price += otherItem.price;
-        this.volume += otherItem.volume;
-        this.amount += otherItem.amount;
-    }
-}
-
 function calculateMaxPowerInNumber(number, base) {
     let bin = Number(number).toString(base);
     return bin.length - 1;
@@ -271,7 +344,7 @@ function getItemsForPack(prices) {
     let items = [];
     for (let goods in prices) {
         let goodsInPort = map.home.goodsInPort;
-        if (!prices.hasOwnProperty(goods) || !goodsInPort.hasOwnProperty(goods) ) {
+        if (!prices.hasOwnProperty(goods) || !goodsInPort.hasOwnProperty(goods)) {
             continue;
         }
         let count = goodsInPort[goods].amount;
@@ -287,12 +360,29 @@ function getItemsForPack(prices) {
     return items;
 }
 
+function restorePack(items, keepMatrix) {
+    let solutionSet = {};
+    let j = maxWeight;
+    for (let i = items.length; i > 0; i--) {
+        if (keepMatrix[i][j] === 1) {
+            let current = items[i - 1];
+            if (!solutionSet.hasOwnProperty(current.name)) {
+                solutionSet[current.name] = current;
+            } else {
+                solutionSet[current.name].add(current);
+            }
+            j -= current.volume;
+        }
+    }
+
+    return Object.values(solutionSet);
+}
+
 function packGoods(portId) {
     let items = getItemsForPack(map.customers[portId].prices);
     let itemCount = items.length;
     let weightMatrix = [];
     let keepMatrix = [];
-    let solutionSet = {};
 
     for (let i = 0; i <= itemCount; i++) {
         weightMatrix.push([]);
@@ -322,102 +412,6 @@ function packGoods(portId) {
             }
         }
     }
-    let j = maxWeight;
-    for (let i = itemCount; i > 0; i--) {
-        if (keepMatrix[i][j] === 1) {
-            let current = items[i - 1];
-            if (!solutionSet.hasOwnProperty(current.name)) {
-                solutionSet[current.name] = current;
-            } else {
-                solutionSet[current.name].add(current);
-            }
-            j -= current.volume;
-        }
-    }
 
-    return Object.values(solutionSet);
-}
-
-class Task {
-    constructor(portId, goods) {
-        this.portId = portId;
-        this.goods = goods;
-        this.rout = map.home.routsToCustomers[portId];
-        this.inWay = false;
-        this.atHome = true;
-        this.generator = this.generateStep();
-    }
-
-    * generateStep() {
-        for (let item of this.goods) {
-            yield `LOAD ${item.name} ${item.amount}`
-        }
-
-        let lastCell = this.rout[0];
-        for (let i = 1; i < this.rout.length; i++) {
-            let cell = this.rout[i];
-            switch (cell.x - lastCell.x) {
-                case -1:
-                    yield 'E';
-                    break;
-                case 1:
-                    yield 'W';
-                    break;
-            }
-            switch (cell.y - lastCell.y) {
-                case -1:
-                    yield 'S';
-                    break;
-                case 1:
-                    yield 'N';
-                    break;
-            }
-            lastCell = cell;
-        }
-
-        for (let item of this.goods) {
-            yield `SELL ${item.name} ${item.amount}`
-        }
-
-        let lenRout = this.rout.length - 1;
-        lastCell = this.rout[lenRout];
-        for (let i = lenRout - 1; i >= 0; i--) {
-            let cell = this.rout[i];
-            switch (cell.x - lastCell.x) {
-                case -1:
-                    yield 'E';
-                    break;
-                case 1:
-                    yield 'W';
-                    break;
-            }
-            switch (cell.y - lastCell.y) {
-                case -1:
-                    yield 'S';
-                    break;
-                case 1:
-                    yield 'N';
-                    break;
-            }
-            lastCell = cell;
-        }
-    }
-}
-
-
-export function getNextCommand(gameState) {
-    if (!onTask) {
-        updateGoodsInPort(gameState);
-        let currentPort = chooseCustomer();
-        let goods = packGoods(currentPort);
-        task = new Task(currentPort, goods);
-        onTask = true;
-    }
-    let step = task.generator.next();
-    if (step.done) {
-        onTask = false;
-        return getNextCommand(gameState);
-    }
-    console.info(step.value);
-    return step.value;
+    return restorePack(items, keepMatrix);
 }
