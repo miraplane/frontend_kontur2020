@@ -1,7 +1,13 @@
 'use strict';
 
+const maxWeight = 368;
+let onTask = false;
+let task = {};
+let map = {};
+
 export function startGame(levelMap, gameState) {
     onTask = false;
+
     map.map = parseMap(levelMap);
     map.size = map.map.length;
     map.customers = getCustomersPorts(gameState);
@@ -18,19 +24,14 @@ export function getNextCommand(gameState) {
         task = new Task(currentPort, goods);
         onTask = true;
     }
+
     let step = task.generator.next();
     if (step.done) {
         onTask = false;
         return getNextCommand(gameState);
     }
-    console.info(step.value);
     return step.value;
 }
-
-const maxWeight = 368;
-let onTask = false;
-let task = {};
-let map = {};
 
 class Point {
     constructor(x, y) {
@@ -58,14 +59,14 @@ class Customer extends Port {
     constructor(x, y, id) {
         super(x, y, id);
         this.prices = {};
-        this.routToHome = [];
+        this.routeToHome = [];
     }
 }
 
 class Home extends Port{
     constructor(x, y, id) {
         super(x, y, id);
-        this.routsToCustomers = {};
+        this.routesToCustomers = {};
         this.goodsInPort = {};
     }
 }
@@ -92,12 +93,12 @@ class Task {
     constructor(portId, goods) {
         this.portId = portId;
         this.goods = goods;
-        this.routToCustomer = map.home.routsToCustomers[portId];
-        this.routToHome = map.customers[portId].routToHome;
+        this.routeToCustomer = map.home.routesToCustomers[portId];
+        this.routeToHome = map.customers[portId].routeToHome;
         this.generator = this.generateStep();
     }
 
-    * generateRoutStep(rout){
+    * generateRouteStep(rout){
         let lastCell = rout[0];
         for (let i = 1; i < rout.length; i++) {
             let cell = rout[i];
@@ -126,7 +127,7 @@ class Task {
             yield `LOAD ${item.name} ${item.amount}`
         }
 
-        let toCustomer = this.generateRoutStep(this.routToCustomer);
+        let toCustomer = this.generateRouteStep(this.routeToCustomer);
         let step = toCustomer.next();
         while (!step.done) {
             yield step.value;
@@ -137,7 +138,7 @@ class Task {
             yield `SELL ${item.name} ${item.amount}`
         }
 
-        let toHome = this.generateRoutStep(this.routToHome);
+        let toHome = this.generateRouteStep(this.routeToHome);
         step = toHome.next();
         while (!step.done) {
             yield step.value;
@@ -167,10 +168,10 @@ function isAbroad(point) {
     return point.x > map.size - 1 || point.x < 0 || point.y > map.size - 1 || point.y < 0;
 }
 
-function findMinCost(array) {
+function getMinCostPointIndex(points) {
     let index = 0;
-    for (let i = 1; i < array.length; i++) {
-        if (array[i].cost < array[index].cost) {
+    for (let i = 1; i < points.length; i++) {
+        if (points[i].cost < points[index].cost) {
             index = i;
         }
     }
@@ -220,7 +221,7 @@ function getHomePort(gameState) {
     return home;
 }
 
-function findRout(start, end) {
+function findRoute(start, end) {
     let heuristic = calculateManhattanDistance.bind(this, end);
     let openList = [];
     let closedList = [];
@@ -231,7 +232,7 @@ function findRout(start, end) {
     start.parent = undefined;
 
     while (openList.length !== 0) {
-        let index = findMinCost(openList);
+        let index = getMinCostPointIndex(openList);
         let current = openList[index];
 
         if (current.isEqual(end)) {
@@ -269,9 +270,9 @@ function findRoutesFromHomeToAll() {
         }
 
         let customer = map.customers[id];
-        let rout = findRout(map.home.xy, customer.xy);
-        map.home.routsToCustomers[id] = rout;
-        customer.routToHome = rout.reduce((acc, e) => ([e, ...acc]), []);
+        let rout = findRoute(map.home.xy, customer.xy);
+        map.home.routesToCustomers[id] = rout;
+        customer.routeToHome = rout.reduce((acc, e) => ([e, ...acc]), []);
 
         routs.push(rout);
     }
@@ -295,7 +296,7 @@ function getProfitUnitGoods() {
             if (!customer.prices.hasOwnProperty(goods)) {
                 continue;
             }
-            let current = calculateProfit(map.home.routsToCustomers[id].length,
+            let current = calculateProfit(map.home.routesToCustomers[id].length,
                 map.home.goodsInPort[goods].volume,
                 customer.prices[goods]);
 
@@ -321,18 +322,18 @@ function goodsInStock(goods) {
 
 function chooseCustomer() {
     let maxPrice = Number.NEGATIVE_INFINITY;
-    let currentPortId = 0;
+    let portId = 0;
     for (let goods in map.profit) {
         if (!map.profit.hasOwnProperty(goods)) {
             continue;
         }
-
-        if (map.profit[goods].price > maxPrice && goodsInStock(goods)) {
-            maxPrice = map.profit[goods].price;
-            currentPortId = map.profit[goods].portId;
+        let current = map.profit[goods];
+        if (current.price > maxPrice && goodsInStock(goods)) {
+            maxPrice = current.price;
+            portId = current.portId;
         }
     }
-    return currentPortId;
+    return portId;
 }
 
 function calculateMaxPowerInNumber(number, base) {
