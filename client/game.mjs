@@ -280,6 +280,7 @@ function findRoute(start, end) {
             }
         }
     }
+    return [];
 }
 
 function findRoutesFromHomeToAll() {
@@ -307,10 +308,11 @@ function getProfitUnitGoods() {
 
         let customer = map.customers[id];
         for (let goods in customer.prices) {
-            if (!customer.prices.hasOwnProperty(goods)) {
+            let lenRoute =  map.home.routesToCustomers[id].length;
+            if (!customer.prices.hasOwnProperty(goods) || lenRoute === 0) {
                 continue;
             }
-            let current = calculateProfit(map.home.routesToCustomers[id].length,
+            let current = calculateProfit(lenRoute,
                 map.home.goodsInPort[goods].volume,
                 customer.prices[goods]);
 
