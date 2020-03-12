@@ -1,6 +1,7 @@
 'use strict';
 
 const maxWeight = 368;
+const area = [{x: -1, y: 0}, {x: 1, y: 0}, {x: 0, y: -1}, {x: 0, y: 1}];
 let onTask = false;
 let task = {};
 let map = {};
@@ -12,17 +13,21 @@ export function startGame(levelMap, gameState) {
     map.size = map.map.length;
     map.customers = getCustomersPorts(gameState);
     map.home = getHomePort(gameState);
-    map.route = findRoutesFromHomeToAll();
+    map.pirates = gameState.pirates;
+    findRoutesFromHomeToAll();
     map.profit = getProfitUnitGoods();
 }
 
 export function getNextCommand(gameState) {
+    map.pirates = gameState.pirates;
+
     if (!onTask) {
+        onTask = true;
         updateGoodsInPort(gameState);
+
         let currentPort = chooseCustomer();
         let goods = packGoods(currentPort);
         task = new Task(currentPort, goods);
-        onTask = true;
     }
 
     let step = task.generator.next();
@@ -59,7 +64,6 @@ class Customer extends Port {
     constructor(x, y, id) {
         super(x, y, id);
         this.prices = {};
-        this.routeToHome = [];
     }
 }
 
@@ -92,17 +96,17 @@ class PackItem {
 class Task {
     constructor(portId, goods) {
         this.portId = portId;
+        this.home = map.home.xy;
+        this.customer = map.customers[this.portId].xy;
         this.goods = goods;
-        this.routeToCustomer = map.home.routesToCustomers[portId];
-        this.routeToHome = map.customers[portId].routeToHome;
         this.generator = this.generateStep();
     }
 
-    * generateRouteStep(rout){
-        let lastCell = rout[0];
-        for (let i = 1; i < rout.length; i++) {
-            let cell = rout[i];
-            switch (cell.x - lastCell.x) {
+    * generateRouteStep(start, end){
+        while (!start.isEqual(end)) {
+            let newRoute = findRoute(start, end);
+            let cell = newRoute[1];
+            switch (cell.x - start.x) {
                 case -1:
                     yield 'W';
                     break;
@@ -110,7 +114,7 @@ class Task {
                     yield 'E';
                     break;
             }
-            switch (cell.y - lastCell.y) {
+            switch (cell.y - start.y) {
                 case -1:
                     yield 'N';
                     break;
@@ -118,7 +122,7 @@ class Task {
                     yield 'S';
                     break;
             }
-            lastCell = cell;
+            start = cell;
         }
     }
 
@@ -127,7 +131,8 @@ class Task {
             yield `LOAD ${item.name} ${item.amount}`
         }
 
-        let toCustomer = this.generateRouteStep(this.routeToCustomer);
+
+        let toCustomer = this.generateRouteStep(this.home, this.customer);
         let step = toCustomer.next();
         while (!step.done) {
             yield step.value;
@@ -138,7 +143,7 @@ class Task {
             yield `SELL ${item.name} ${item.amount}`
         }
 
-        let toHome = this.generateRouteStep(this.routeToHome);
+        let toHome = this.generateRouteStep(this.customer, this.home);
         step = toHome.next();
         while (!step.done) {
             yield step.value;
@@ -221,6 +226,21 @@ function getHomePort(gameState) {
     return home;
 }
 
+function isPirateArea(point) {
+    for (let pirate of map.pirates) {
+        if (point.isEqual(pirate)) {
+            return true;
+        }
+        for (let vector of area) {
+            let newPoint = new Point(pirate.x + vector.x, pirate.y + vector.y);
+            if (point.isEqual(newPoint)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 function findRoute(start, end) {
     let heuristic = calculateManhattanDistance.bind(this, end);
     let openList = [];
@@ -242,10 +262,10 @@ function findRoute(start, end) {
         openList.splice(index, 1);
         closedList.push(current);
 
-        for (let vector of [{x: -1, y: 0}, {x: 1, y: 0}, {x: 0, y: -1}, {x: 0, y: 1}]) {
+        for (let vector of area) {
             let next = new Point(current.x + vector.x, current.y + vector.y);
 
-            if (isAbroad(next) || closedList.some(item => item.isEqual(next)) || isWall(next)) {
+            if (isAbroad(next) || closedList.some(item => item.isEqual(next)) || isWall(next) || isPirateArea(next)) {
                 continue;
             }
 
@@ -263,21 +283,15 @@ function findRoute(start, end) {
 }
 
 function findRoutesFromHomeToAll() {
-    let routs = [];
     for (let id in map.customers) {
         if (! map.customers.hasOwnProperty(id)) {
             continue;
         }
 
         let customer = map.customers[id];
-        let rout = findRoute(map.home.xy, customer.xy);
-        map.home.routesToCustomers[id] = rout;
-        customer.routeToHome = rout.reduce((acc, e) => ([e, ...acc]), []);
+        map.home.routesToCustomers[id] = findRoute(map.home.xy, customer.xy);
 
-        routs.push(rout);
     }
-
-    return routs;
 }
 
 function calculateProfit(lenRout, volume, price) {
