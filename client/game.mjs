@@ -2,39 +2,27 @@
 
 const maxWeight = 368;
 const area = [{x: -1, y: 0}, {x: 1, y: 0}, {x: 0, y: -1}, {x: 0, y: 1}];
-let onTask = false;
-let task = {};
-let map = {};
+const maxStep = 180;
+let game = {};
 
 export function startGame(levelMap, gameState) {
-    onTask = false;
-
-    map.map = parseMap(levelMap);
-    map.size = map.map.length;
-    map.customers = getCustomersPorts(gameState);
-    map.home = getHomePort(gameState);
-    map.pirates = gameState.pirates;
-    findRoutesFromHomeToAll();
-    map.profit = getProfitUnitGoods();
+    game = new Game(levelMap, gameState);
 }
 
 export function getNextCommand(gameState) {
-    map.pirates = gameState.pirates;
+    game.update(gameState);
 
-    if (!onTask) {
-        onTask = true;
-        updateGoodsInPort(gameState);
-
-        let currentPort = chooseCustomer();
-        let goods = packGoods(currentPort);
-        task = new Task(currentPort, goods);
+    if (!game.onTask) {
+        game.onTaskMode();
     }
 
-    let step = task.generator.next();
+    let step = game.task.generator.next();
     if (step.done) {
-        onTask = false;
+        game.onTask = false;
         return getNextCommand(gameState);
     }
+
+    game.stepCounter += 1;
     return step.value;
 }
 
@@ -75,6 +63,306 @@ class Home extends Port{
     }
 }
 
+class PirateTeam {
+    constructor(pirates) {
+        this.pirates = pirates.map((pirate) => new Pirate(pirate.x, pirate.y));
+    }
+
+    move(newPirates) {
+        for (let i = 0; i < newPirates.length; i++) {
+            this.pirates[i].move(newPirates[i]);
+        }
+    }
+
+    isPiratesArea(point) {
+        for (let pirate of this.pirates) {
+            if (pirate.isPirateArea(point)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    getNext() {
+        return new PirateTeam(this.pirates.map((pirate) => pirate.getNext()));
+    }
+}
+
+class Pirate {
+    constructor(x, y) {
+        this.current = new Point(x, y);
+        this.step = -1;
+        this.way = [this.current];
+        this.newWay = [];
+        this.fullWay = false;
+    }
+
+    move(point) {
+        let newCurrent = new Point(point.x, point.y);
+
+        if (this.fullWay) {
+            if (this.current.isEqual(newCurrent)) {
+                return;
+            }
+
+            let step = (this.step + 1) % this.way.length;
+            let current = this.way[step];
+
+            this.newWay.push(newCurrent);
+            if (!current.isEqual(newCurrent)) {
+                this.fullWay = false;
+                this.way.push(...this.newWay) ;
+                this.step = this.way.length - 1;
+                this.newWay = [];
+            }
+            else {
+                this.step = step;
+                if (this.way.length === this.newWay.length) {
+                    this.newWay = [];
+                }
+            }
+
+            this.current = newCurrent;
+            return;
+        }
+
+        if (this.step === -1) {
+            this.step += 1;
+            return;
+        }
+
+        this.current = newCurrent;
+        if (this.step !== 0 && this.way[0].isEqual(newCurrent)) {
+            this.fullWay = true;
+            this.step = 0;
+            this.newWay.push(this.current);
+        } else {
+            this.way.push(this.current);
+            this.step += 1;
+        }
+    }
+
+    getNext() {
+        if(this.step === 0) {
+            return this.current;
+        }
+
+        if(this.fullWay) {
+            return this.way[(this.step + 1) % this.way.length];
+        }
+
+        let prev = this.way[this.step - 1];
+        let direction = new Point(this.current.x - prev.x, this.current.y - prev.y);
+
+        return new Point(this.current.x + direction.x, this.current.y + direction.y);
+    }
+
+    isPirateArea(point) {
+        if (this.current.isEqual(point)) {
+            return true;
+        }
+        for (let vector of area) {
+            let newPoint = new Point(this.current.x + vector.x, this.current.y + vector.y);
+            if (newPoint.isEqual(point)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+}
+
+class Map {
+    constructor(levelMap, gameState, pirates) {
+        this.map = this.parseMap(levelMap);
+        this.size = this.map.length;
+        this.customers = this.getCustomersPorts(gameState);
+        this.home = this.getHomePort(gameState);
+        this.findRoutesFromHomeToAll(pirates);
+        this.profit = this.getProfitUnitGoods();
+    }
+
+    parseMap(stringMap) {
+        let my_map = [];
+        for (let line of stringMap.split('\n')) {
+            my_map.push(line.split(''));
+        }
+
+        return my_map;
+    }
+
+    getCustomersPorts(gameState) {
+        let customers = {};
+        for (let port of gameState.ports) {
+            if (!port.isHome) {
+                customers[port.portId] = new Customer(port.x, port.y, port.portId);
+            }
+        }
+
+        for (let prices of gameState.prices) {
+            Object.assign(customers[prices.portId].prices, prices);
+            delete customers[prices.portId].prices.portId;
+        }
+
+        return customers;
+    }
+
+    getHomePort(gameState) {
+        let home = {};
+        for (let port of gameState.ports) {
+            if (port.isHome) {
+                home =  new Home(port.x, port.y, port.portId);
+                break;
+            }
+        }
+
+        for (let goods of gameState.goodsInPort) {
+            home.goodsInPort[goods.name] = goods;
+        }
+
+        return home;
+    }
+
+    calculateManhattanDistance(end, start) {
+        return Math.abs(start.x - end.x) + Math.abs(start.y - end.y);
+    }
+
+    isWall(point) {
+        return (this.map)[point.y][point.x] === '#';
+    }
+
+    isAbroad(point) {
+        return point.x > this.size - 1 || point.x < 0 || point.y > this.size - 1 || point.y < 0;
+    }
+
+    getMinCostPointIndex(points) {
+        let index = 0;
+        for (let i = 1; i < points.length; i++) {
+            if (points[i].cost < points[index].cost) {
+                index = i;
+            }
+        }
+
+        return index
+    }
+
+    collectPath(current) {
+        let path = [];
+        while (current) {
+            path.push(current);
+            current = current.parent;
+        }
+
+        return path.reverse();
+    }
+
+    findRoute(start, end, pirates) {
+        let heuristic = this.calculateManhattanDistance.bind(this, end);
+        let openList = [];
+        let closedList = [];
+
+        openList.push(start);
+        start.lenToStart = 0;
+        start.cost = heuristic(start);
+        start.parent = undefined;
+
+        while (openList.length !== 0) {
+            let index = this.getMinCostPointIndex(openList);
+            let current = openList[index];
+
+            if (current.isEqual(end)) {
+                return this.collectPath(current);
+            }
+
+            openList.splice(index, 1);
+            closedList.push(current);
+
+            for (let vector of area) {
+                let next = new Point(current.x + vector.x, current.y + vector.y);
+
+                if (this.isAbroad(next) || closedList.some(item => item.isEqual(next)) || this.isWall(next) || pirates.isPiratesArea(next)) {
+                    continue;
+                }
+
+                let new_cost = current.lenToStart + 1;
+                if (!closedList.some(item => item.isEqual(next)) || new_cost < next.lenToStart) {
+                    next.parent = current;
+                    next.lenToStart = new_cost;
+                    next.cost = new_cost + heuristic(next);
+                    if (!openList.some(item => item.isEqual(next))) {
+                        openList.push(next);
+                    }
+                }
+            }
+        }
+
+        return [];
+    }
+
+    findRoutesFromHomeToAll(pirates) {
+        for (let id in this.customers) {
+            if (! this.customers.hasOwnProperty(id)) {
+                continue;
+            }
+
+            let customer = this.customers[id];
+            this.home.routesToCustomers[id] = this.findRoute(this.home.xy, customer.xy, pirates);
+
+        }
+    }
+
+    searchBestRoute(start, end) {
+        let bestRoute = [];
+        let minLength = Number.MAX_VALUE;
+        for (let vector of area) {
+            let next = new Point(start.x + vector.x, start.y + vector.y);
+            if (this.isAbroad(next) || this.isWall(next) || game.pirates.isPiratesArea(next)) {
+                continue;
+            }
+            let route = this.findRoute(next, end, game.pirates.getNext());
+            route.unshift(next);
+            route.unshift(start);
+            if (route.length < minLength) {
+                minLength = route.length;
+                bestRoute = route;
+            }
+        }
+
+        return bestRoute;
+    }
+
+    calculateProfit(lenRout, volume, price) {
+        return (price / volume) / lenRout;
+    }
+
+    getProfitUnitGoods() {
+        let profitGoods = {};
+        for (let id in this.customers) {
+            if (!this.customers.hasOwnProperty(id)) {
+                continue;
+            }
+
+            let customer = this.customers[id];
+            for (let goods in customer.prices) {
+                let lenRoute =  this.home.routesToCustomers[id].length;
+                if (!customer.prices.hasOwnProperty(goods) || lenRoute === 0) {
+                    continue;
+                }
+                let current = this.calculateProfit(lenRoute,
+                    this.home.goodsInPort[goods].volume,
+                    customer.prices[goods]);
+
+                if (!profitGoods.hasOwnProperty(goods) || profitGoods[goods].price < current) {
+                    profitGoods[goods] = { portId: id, price:current };
+                }
+            }
+        }
+
+        return profitGoods;
+    }
+}
+
 class PackItem {
     constructor(name, price, volume, amount) {
         this.name = name;
@@ -96,15 +384,19 @@ class PackItem {
 class Task {
     constructor(portId, goods) {
         this.portId = portId;
-        this.home = map.home.xy;
-        this.customer = map.customers[this.portId].xy;
+        this.home = game.map.home.xy;
+        this.customer = game.map.customers[this.portId].xy;
         this.goods = goods;
         this.generator = this.generateStep();
     }
 
     * generateRouteStep(start, end){
         while (!start.isEqual(end)) {
-            let newRoute = findRoute(start, end);
+            let newRoute = game.map.searchBestRoute(start, end);
+            if (newRoute.length === 0) {
+                yield 'WAIT';
+                continue;
+            }
             let cell = newRoute[1];
             switch (cell.x - start.x) {
                 case -1:
@@ -152,283 +444,189 @@ class Task {
     }
 }
 
-function parseMap(stringMap) {
-    let my_map = [];
-    for (let line of stringMap.split('\n')) {
-        my_map.push(line.split(''));
+class Game {
+    constructor(levelMap, gameState) {
+        this.stepCounter = 0;
+        this.onTask = false;
+        this.task = {};
+        this.pirates = new PirateTeam(gameState.pirates);
+        this.map = new Map(levelMap, gameState, this.pirates);
+        this.gameState = gameState;
     }
 
-    return my_map;
-}
-
-function calculateManhattanDistance(end, start) {
-    return Math.abs(start.x - end.x) + Math.abs(start.y - end.y);
-}
-
-function isWall(point) {
-    return (map.map)[point.y][point.x] === '#';
-}
-
-function isAbroad(point) {
-    return point.x > map.size - 1 || point.x < 0 || point.y > map.size - 1 || point.y < 0;
-}
-
-function getMinCostPointIndex(points) {
-    let index = 0;
-    for (let i = 1; i < points.length; i++) {
-        if (points[i].cost < points[index].cost) {
-            index = i;
-        }
+    update(gameState) {
+        this.pirates.move(gameState.pirates);
+        this.gameState = gameState;
     }
 
-    return index
-}
+    onTaskMode() {
+        this.onTask = true;
+        this.updateGoodsInPort();
 
-function collectPath(current) {
-    let path = [];
-    while (current) {
-        path.push(current);
-        current = current.parent;
-    }
+        let currentPort = this.chooseCustomer();
+        this.createTask(currentPort);
 
-    return path.reverse();
-}
-
-function getCustomersPorts(gameState) {
-    let customers = {};
-    for (let port of gameState.ports) {
-        if (!port.isHome) {
-            customers[port.portId] = new Customer(port.x, port.y, port.portId);
-        }
-    }
-
-    for (let prices of gameState.prices) {
-        Object.assign(customers[prices.portId].prices, prices);
-        delete customers[prices.portId].prices.portId;
-    }
-
-    return customers;
-}
-
-function getHomePort(gameState) {
-    let home = {};
-    for (let port of gameState.ports) {
-        if (port.isHome) {
-            home =  new Home(port.x, port.y, port.portId);
-            break;
-        }
-    }
-
-    for (let goods of gameState.goodsInPort) {
-        home.goodsInPort[goods.name] = goods;
-    }
-
-    return home;
-}
-
-function isPirateArea(point) {
-    for (let pirate of map.pirates) {
-        if (point.isEqual(pirate)) {
-            return true;
-        }
-        for (let vector of area) {
-            let newPoint = new Point(pirate.x + vector.x, pirate.y + vector.y);
-            if (point.isEqual(newPoint)) {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
-function findRoute(start, end) {
-    let heuristic = calculateManhattanDistance.bind(this, end);
-    let openList = [];
-    let closedList = [];
-
-    openList.push(start);
-    start.lenToStart = 0;
-    start.cost = heuristic(start);
-    start.parent = undefined;
-
-    while (openList.length !== 0) {
-        let index = getMinCostPointIndex(openList);
-        let current = openList[index];
-
-        if (current.isEqual(end)) {
-            return collectPath(current);
-        }
-
-        openList.splice(index, 1);
-        closedList.push(current);
-
-        for (let vector of area) {
-            let next = new Point(current.x + vector.x, current.y + vector.y);
-
-            if (isAbroad(next) || closedList.some(item => item.isEqual(next)) || isWall(next) || isPirateArea(next)) {
-                continue;
-            }
-
-            let new_cost = current.lenToStart + 1;
-            if (!closedList.some(item => item.isEqual(next)) || new_cost < next.lenToStart) {
-                next.parent = current;
-                next.lenToStart = new_cost;
-                next.cost = new_cost + heuristic(next);
-                if (!openList.some(item => item.isEqual(next))) {
-                    openList.push(next);
-                }
-            }
-        }
-    }
-    return [];
-}
-
-function findRoutesFromHomeToAll() {
-    for (let id in map.customers) {
-        if (! map.customers.hasOwnProperty(id)) {
-            continue;
-        }
-
-        let customer = map.customers[id];
-        map.home.routesToCustomers[id] = findRoute(map.home.xy, customer.xy);
-
-    }
-}
-
-function calculateProfit(lenRout, volume, price) {
-    return (price / volume) / lenRout;
-}
-
-function getProfitUnitGoods() {
-    let profitGoods = {};
-    for (let id in map.customers) {
-        if (!map.customers.hasOwnProperty(id)) {
-            continue;
-        }
-
-        let customer = map.customers[id];
-        for (let goods in customer.prices) {
-            let lenRoute =  map.home.routesToCustomers[id].length;
-            if (!customer.prices.hasOwnProperty(goods) || lenRoute === 0) {
-                continue;
-            }
-            let current = calculateProfit(lenRoute,
-                map.home.goodsInPort[goods].volume,
-                customer.prices[goods]);
-
-            if (!profitGoods.hasOwnProperty(goods) || profitGoods[goods].price < current) {
-                profitGoods[goods] = { portId: id, price:current };
-            }
-        }
-    }
-    return profitGoods;
-}
-
-function updateGoodsInPort(gameState) {
-    map.home.goodsInPort = {};
-    for (let goods of gameState.goodsInPort) {
-        map.home.goodsInPort[goods.name] = goods;
-    }
-}
-
-function goodsInStock(goods) {
-    return map.home.goodsInPort.hasOwnProperty(goods) &&
-        map.home.goodsInPort[goods].amount > 0;
-}
-
-function chooseCustomer() {
-    let maxPrice = Number.NEGATIVE_INFINITY;
-    let portId = 0;
-    for (let goods in map.profit) {
-        if (!map.profit.hasOwnProperty(goods)) {
-            continue;
-        }
-        let current = map.profit[goods];
-        if (current.price > maxPrice && goodsInStock(goods)) {
-            maxPrice = current.price;
-            portId = current.portId;
-        }
-    }
-    return portId;
-}
-
-function calculateMaxPowerInNumber(number, base) {
-    let bin = Number(number).toString(base);
-    return bin.length - 1;
-}
-
-function getItemsForPack(prices) {
-    let items = [];
-    for (let goods in prices) {
-        let goodsInPort = map.home.goodsInPort;
-        if (!prices.hasOwnProperty(goods) || !goodsInPort.hasOwnProperty(goods)) {
-            continue;
-        }
-        let count = goodsInPort[goods].amount;
-        let power = calculateMaxPowerInNumber(count, 2);
-        let countPack = 0;
-        for (let i = 0; i < power; i++) {
-            countPack += Math.pow(2, i);
-            items.push(new PackItem(goods, prices[goods], goodsInPort[goods].volume, Math.pow(2, i)));
-        }
-        items.push(new PackItem(goods, prices[goods], goodsInPort[goods].volume, count - countPack));
-    }
-
-    return items;
-}
-
-function restorePack(items, keepMatrix) {
-    let solutionSet = {};
-    let j = maxWeight;
-    for (let i = items.length; i > 0; i--) {
-        if (keepMatrix[i][j] === 1) {
-            let current = items[i - 1];
-            if (!solutionSet.hasOwnProperty(current.name)) {
-                solutionSet[current.name] = current;
+        let lenRoute = this.map.home.routesToCustomers[currentPort].length - 1;
+        let stepInTask = lenRoute + 2 * this.task.goods.length;
+        let stepInGame = maxStep - this.stepCounter;
+        while (stepInTask > stepInGame && this.task.goods.length !== 0) {
+            let near = this.findNearestPort(currentPort);
+            if (near !== currentPort) {
+                currentPort = near;
+                this.createTask(currentPort);
+                lenRoute = this.map.home.routesToCustomers[currentPort].length - 1;
             } else {
-                solutionSet[current.name].add(current);
+                let minIndex = this.findGoodsWithMinPrice(this.task.goods);
+                this.task.goods.splice(minIndex, 1);
             }
-            j -= current.volume;
+            stepInTask = lenRoute + 2 * this.task.goods.length;
         }
     }
 
-    return Object.values(solutionSet);
-}
-
-function packGoods(portId) {
-    let items = getItemsForPack(map.customers[portId].prices);
-    let itemCount = items.length;
-    let weightMatrix = [];
-    let keepMatrix = [];
-
-    for (let i = 0; i <= itemCount; i++) {
-        weightMatrix.push([]);
-        keepMatrix.push([]);
-        for (let j = 0; j <= maxWeight; j++) {
-            weightMatrix[i].push(0);
-            keepMatrix[i].push(0);
+    updateGoodsInPort() {
+        this.map.home.goodsInPort = {};
+        for (let goods of this.gameState.goodsInPort) {
+            this.map.home.goodsInPort[goods.name] = goods;
         }
     }
 
-    for (let i = 1; i <= itemCount; i++) {
-        for (let j = 1; j <= maxWeight; j++){
-            let current = items[i - 1];
-            if (current.volume <= j){
-                let newMax = current.price + weightMatrix[i - 1][j - current.volume];
-                let oldMax = weightMatrix[i - 1][j];
+    goodsInStock(goods) {
+        return this.map.home.goodsInPort.hasOwnProperty(goods) &&
+            this.map.home.goodsInPort[goods].amount > 0;
+    }
 
-                if(newMax > oldMax) {
-                    weightMatrix[i][j] = newMax;
-                    keepMatrix[i][j] = 1;
+    chooseCustomer() {
+        let maxPrice = Number.NEGATIVE_INFINITY;
+        let portId = 0;
+        for (let goods in this.map.profit) {
+            if (!this.map.profit.hasOwnProperty(goods)) {
+                continue;
+            }
+            let current = this.map.profit[goods];
+            if (current.price > maxPrice && this.goodsInStock(goods)) {
+                maxPrice = current.price;
+                portId = current.portId;
+            }
+        }
+
+        return portId;
+    }
+
+    calculateMaxPowerInNumber(number, base) {
+        let bin = Number(number).toString(base);
+
+        return bin.length - 1;
+    }
+
+    getItemsForPack(prices) {
+        let items = [];
+        for (let goods in prices) {
+            let goodsInPort = this.map.home.goodsInPort;
+            if (!prices.hasOwnProperty(goods) || !goodsInPort.hasOwnProperty(goods)) {
+                continue;
+            }
+            let count = goodsInPort[goods].amount;
+            let power = this.calculateMaxPowerInNumber(count, 2);
+            let countPack = 0;
+            for (let i = 0; i < power; i++) {
+                countPack += Math.pow(2, i);
+                items.push(new PackItem(goods, prices[goods], goodsInPort[goods].volume, Math.pow(2, i)));
+            }
+            items.push(new PackItem(goods, prices[goods], goodsInPort[goods].volume, count - countPack));
+        }
+
+        return items;
+    }
+
+    restorePack(items, keepMatrix) {
+        let solutionSet = {};
+        let j = maxWeight;
+        for (let i = items.length; i > 0; i--) {
+            if (keepMatrix[i][j] === 1) {
+                let current = items[i - 1];
+                if (!solutionSet.hasOwnProperty(current.name)) {
+                    solutionSet[current.name] = current;
                 } else {
-                    weightMatrix[i][j] = oldMax;
-                    keepMatrix[i][j] = 0;
+                    solutionSet[current.name].add(current);
                 }
-            } else {
-                weightMatrix[i][j] = weightMatrix[i - 1][j];
+                j -= current.volume;
             }
         }
+
+        return Object.values(solutionSet);
     }
 
-    return restorePack(items, keepMatrix);
+    packGoods(portId) {
+        let items = this.getItemsForPack(this.map.customers[portId].prices);
+        let itemCount = items.length;
+        let weightMatrix = [];
+        let keepMatrix = [];
+
+        for (let i = 0; i <= itemCount; i++) {
+            weightMatrix.push([]);
+            keepMatrix.push([]);
+            for (let j = 0; j <= maxWeight; j++) {
+                weightMatrix[i].push(0);
+                keepMatrix[i].push(0);
+            }
+        }
+
+        for (let i = 1; i <= itemCount; i++) {
+            for (let j = 1; j <= maxWeight; j++){
+                let current = items[i - 1];
+                if (current.volume <= j){
+                    let newMax = current.price + weightMatrix[i - 1][j - current.volume];
+                    let oldMax = weightMatrix[i - 1][j];
+
+                    if(newMax > oldMax) {
+                        weightMatrix[i][j] = newMax;
+                        keepMatrix[i][j] = 1;
+                    } else {
+                        weightMatrix[i][j] = oldMax;
+                        keepMatrix[i][j] = 0;
+                    }
+                } else {
+                    weightMatrix[i][j] = weightMatrix[i - 1][j];
+                }
+            }
+        }
+
+        return this.restorePack(items, keepMatrix);
+    }
+
+    findNearestPort(currentPort) {
+        let nearestPort = currentPort;
+        let routesToCustomers = this.map.home.routesToCustomers;
+        for (let portId in routesToCustomers) {
+            if (!routesToCustomers.hasOwnProperty(portId)) {
+                continue;
+            }
+
+            if (routesToCustomers[portId].length < routesToCustomers[nearestPort].length) {
+                nearestPort = portId;
+            }
+        }
+
+        return nearestPort;
+    }
+
+    findGoodsWithMinPrice(goods) {
+        let min = goods[0];
+        let minIndex = 0;
+
+        for (let i = 0; i < goods.length; i++) {
+            if (goods[i].price < min) {
+                min = goods[i];
+                minIndex = i;
+            }
+        }
+
+        return minIndex;
+    }
+
+    createTask(currentPort) {
+        let goods = this.packGoods(currentPort);
+        this.task = new Task(currentPort, goods);
+        this.onTask = true;
+    }
 }

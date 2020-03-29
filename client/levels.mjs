@@ -174,37 +174,37 @@ const level3 = {
             {
                 portId: 1,
                 x: 9,
-                y: 1, 
+                y: 1,
                 isHome: false,
             },
             {
                 portId: 2,
                 x: 9,
-                y: 19, 
+                y: 19,
                 isHome: false,
             },
             {
                 portId: 3,
-                x: 2, 
+                x: 2,
                 y: 9,
                 isHome: false,
             },
             {
                 portId: 4,
-                x: 19, 
+                x: 19,
                 y: 9,
                 isHome: false,
             },
             {
                 portId: 5,
-                x: 14, 
-                y: 14, 
+                x: 14,
+                y: 14,
                 isHome: false,
             },
             {
                 portId: 6,
-                x: 5, 
-                y: 5, 
+                x: 5,
+                y: 5,
                 isHome: false,
             },
         ],
@@ -248,7 +248,7 @@ const level4 = {
 ~~~~~~~~~~~~~~~~~~~~
 ~~~~~~~~~~~~~~~~~~~~
 ~~~~~~~~~~~~~~~~~~~~
-~~O~~~~~~H~~~~~~~~~O
+~~O~~~~~~H~~~~~~O~~~
 ~~~~~~~~~~~~~~~~~~~~
 ~~~~~~~~~~~~~~~~~~~~
 ~~~~~~~~~~~~~~~~~~~~
@@ -332,7 +332,7 @@ const level4 = {
             },
             {
                 portId: 4,
-                x: 19,
+                x: 16,
                 y: 9,
                 isHome: false,
             },
@@ -374,10 +374,10 @@ const level4 = {
             },
             {
                 portId: 4,
-                fish: 15,
-                gold: 154,
-                spices: 101,
-                wheat: 25,
+                fabric: 27,
+                fish: 17,
+                gold: 151,
+                spices: 112,
             },
             {
                 portId: 5,
