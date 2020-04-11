@@ -11,6 +11,7 @@ export function startGame(levelMap, gameState) {
 
 export function getNextCommand(gameState) {
     game.update(gameState);
+    console.info(gameState.pirates[0]);
 
     if (!game.onTask) {
         game.onTaskMode();
@@ -180,6 +181,10 @@ class Map {
         this.customers = this.getCustomersPorts(gameState);
         this.home = this.getHomePort(gameState);
         this.findRoutesFromHomeToAll(pirates);
+        this.updateProfit();
+    }
+
+    updateProfit() {
         this.profit = this.getProfitUnitGoods();
     }
 
@@ -346,7 +351,7 @@ class Map {
             let customer = this.customers[id];
             for (let goods in customer.prices) {
                 let lenRoute =  this.home.routesToCustomers[id].length;
-                if (!customer.prices.hasOwnProperty(goods) || lenRoute === 0) {
+                if (!customer.prices.hasOwnProperty(goods) || !this.home.goodsInPort.hasOwnProperty(goods) || lenRoute === 0) {
                     continue;
                 }
                 let current = this.calculateProfit(lenRoute,
@@ -457,6 +462,7 @@ class Game {
     update(gameState) {
         this.pirates.move(gameState.pirates);
         this.gameState = gameState;
+        this.map.updateProfit();
     }
 
     onTaskMode() {

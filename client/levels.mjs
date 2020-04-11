@@ -248,7 +248,7 @@ const level4 = {
 ~~~~~~~~~~~~~~~~~~~~
 ~~~~~~~~~~~~~~~~~~~~
 ~~~~~~~~~~~~~~~~~~~~
-~~O~~~~~~H~~~~~~O~~~
+~~O~~~~~~H~~~~~~~~~O
 ~~~~~~~~~~~~~~~~~~~~
 ~~~~~~~~~~~~~~~~~~~~
 ~~~~~~~~~~~~~~~~~~~~
@@ -332,7 +332,7 @@ const level4 = {
             },
             {
                 portId: 4,
-                x: 16,
+                x: 19,
                 y: 9,
                 isHome: false,
             },
@@ -374,10 +374,10 @@ const level4 = {
             },
             {
                 portId: 4,
-                fabric: 27,
-                fish: 17,
-                gold: 151,
-                spices: 112,
+                fish: 15,
+                gold: 154,
+                spices: 101,
+                wheat: 25,
             },
             {
                 portId: 5,
@@ -613,7 +613,7 @@ const level6 = {
     piratesPoints: [[{ x: 4, y: 6 }, { x: 14, y: 6 }]],
 };
 
-const level7 = {
+const level70 = {
     map: `
 ~~~~~~~~~~~~~~~~####
 ~~~~~~~~~~~~~~~~~O##
@@ -780,6 +780,100 @@ const level7 = {
     ],
 };
 
+const level7 = {
+  map: `
+~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~O~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~
+~~~~~O~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~
+~~O~~~~~~H~~~~~~~~~O
+~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~O~~~~~
+~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~O~~~~~~~~~~
+    `.trim(),
+  state: {
+    ship: {
+      x: 9,
+      y: 9,
+      goods: []
+    },
+    score: 0,
+    pirates: [],
+    goodsInPort: [{
+      name: 'wheat',
+      amount: 3000,
+      volume: 3
+    }],
+    ports: [{
+      portId: 0,
+      x: 9,
+      y: 9,
+      isHome: true
+    }, {
+      portId: 1,
+      x: 9,
+      y: 1,
+      isHome: false
+    }, {
+      portId: 2,
+      x: 9,
+      y: 19,
+      isHome: false
+    }, {
+      portId: 3,
+      x: 2,
+      y: 9,
+      isHome: false
+    }, {
+      portId: 4,
+      x: 19,
+      y: 9,
+      isHome: false
+    }, {
+      portId: 5,
+      x: 14,
+      y: 14,
+      isHome: false
+    }, {
+      portId: 6,
+      x: 5,
+      y: 5,
+      isHome: false
+    }],
+    prices: [{
+      portId: 1,
+      wheat: 30
+    }, {
+      portId: 2,
+      wheat: 38
+    }, {
+      portId: 3,
+      wheat: 27
+    }, {
+      portId: 4,
+      wheatFlour: 39
+    }, {
+      portId: 5,
+      wheatFlour: 43
+    }, {
+      portId: 6,
+      wheatFlour: 35
+    }]
+  }
+};
+
 export default {
     1: level1,
     2: level2,
@@ -787,5 +881,5 @@ export default {
     4: level4,
     5: level5,
     6: level6,
-    7: level7,
+    7: level7
 }
